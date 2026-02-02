@@ -3,6 +3,7 @@ import streamlit as st
 import datetime
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import time
@@ -238,11 +239,32 @@ def create_driver(headless: bool, use_profile: bool, user_agent: str, proxy: str
         Path(PROFILE_DIR).mkdir(parents=True, exist_ok=True)
         options.add_argument(f"--user-data-dir={PROFILE_DIR}")
 
+    chrome_exe = os.environ.get("CHROME_BINARY", "").strip()
+    if not chrome_exe:
+        chrome_exe = (
+            shutil.which("google-chrome")
+            or shutil.which("google-chrome-stable")
+            or shutil.which("chromium")
+            or shutil.which("chromium-browser")
+            or ""
+        )
+    chrome_exe = chrome_exe.strip()
+
+    if getattr(options, "binary_location", None) is not None and not isinstance(options.binary_location, str):
+        options.binary_location = str(options.binary_location)
+
     version_main = get_installed_chrome_major_version()
     if version_main is not None:
-        driver = uc.Chrome(options=options, version_main=version_main)
+        driver = uc.Chrome(
+            options=options,
+            version_main=version_main,
+            browser_executable_path=str(chrome_exe) if chrome_exe else None,
+        )
     else:
-        driver = uc.Chrome(options=options)
+        driver = uc.Chrome(
+            options=options,
+            browser_executable_path=str(chrome_exe) if chrome_exe else None,
+        )
     driver.set_page_load_timeout(45)
     return driver
 
