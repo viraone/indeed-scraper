@@ -11,7 +11,6 @@ from typing import List, Optional
 from urllib.parse import quote_plus, urljoin
 
 import pandas as pd
-import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
 
 
@@ -198,7 +197,15 @@ def get_installed_chrome_major_version() -> Optional[int]:
     return None
 
 
-def create_driver(headless: bool, use_profile: bool, user_agent: str, proxy: str) -> uc.Chrome:
+def create_driver(headless: bool, use_profile: bool, user_agent: str, proxy: str):
+    try:
+        import undetected_chromedriver as uc
+    except Exception as e:
+        raise RuntimeError(
+            "undetected-chromedriver failed to import. If you're running on Streamlit Cloud, pin Python to 3.11 via runtime.txt. "
+            f"Import error: {e}"
+        )
+
     options = uc.ChromeOptions()
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -245,7 +252,7 @@ def scrape_first_page(
 ) -> tuple[List[JobRow], dict]:
     url = build_indeed_url(query=query, location=location, radius=radius)
     scraped_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    driver: Optional[uc.Chrome] = None
+    driver = None
     jobs: List[JobRow] = []
     debug: dict = {"url": url}
 
