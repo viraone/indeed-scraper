@@ -25,6 +25,31 @@ DEFAULT_BOOLEAN_QUERY = 'Assembly Installer OR Assembler Installer OR 30204 OR 3
 BOEING_CODES = ["30204", "30304"]
 
 
+def get_database_url() -> str:
+    try:
+        v = st.secrets.get("DATABASE_URL", "")
+        if v:
+            return str(v)
+    except Exception:
+        pass
+    return os.environ.get("DATABASE_URL", "").strip()
+
+
+def using_postgres() -> bool:
+    return bool(get_database_url())
+
+
+def pg_connect():
+    db_url = get_database_url()
+    if not db_url:
+        raise RuntimeError("DATABASE_URL is required for Postgres mode")
+    try:
+        import psycopg2
+    except Exception as e:
+        raise RuntimeError(f"psycopg2 is required for Postgres mode. Import error: {e}")
+    return psycopg2.connect(db_url)
+
+
 def is_streamlit_cloud() -> bool:
     # Heuristic: Streamlit Cloud typically runs code from /mount/src/<repo>
     try:
@@ -46,6 +71,27 @@ class JobRow:
 
 
 def init_db() -> None:
+    if using_postgres():
+        with pg_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS jobs (
+                        id BIGSERIAL PRIMARY KEY,
+                        job_title TEXT NOT NULL,
+                        company TEXT,
+                        location TEXT,
+                        link TEXT UNIQUE NOT NULL,
+                        match_score INTEGER NOT NULL,
+                        matched_terms TEXT,
+                        qualifications TEXT,
+                        scraped_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.commit()
+        return
+
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
             """
@@ -72,6 +118,34 @@ def upsert_jobs(jobs: List[JobRow]) -> int:
     if not jobs:
         return 0
     inserted = 0
+    if using_postgres():
+        with pg_connect() as conn:
+            with conn.cursor() as cur:
+                for j in jobs:
+                    cur.execute(
+                        """
+                        INSERT INTO jobs
+                            (job_title, company, location, link, match_score, matched_terms, qualifications, scraped_at)
+                        VALUES
+                            (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (link) DO NOTHING
+                        """,
+                        (
+                            j.job_title,
+                            j.company,
+                            j.location,
+                            j.link,
+                            j.match_score,
+                            j.matched_terms,
+                            j.qualifications,
+                            j.scraped_at,
+                        ),
+                    )
+                    if cur.rowcount:
+                        inserted += 1
+                conn.commit()
+        return inserted
+
     with sqlite3.connect(DB_PATH) as conn:
         for j in jobs:
             cur = conn.execute(
@@ -100,6 +174,39 @@ def upsert_jobs(jobs: List[JobRow]) -> int:
 
 def load_jobs_df() -> pd.DataFrame:
     init_db()
+    if using_postgres():
+        with pg_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        job_title,
+                        company,
+                        location,
+                        link,
+                        match_score,
+                        matched_terms,
+                        qualifications,
+                        scraped_at
+                    FROM jobs
+                    ORDER BY scraped_at DESC
+                    """
+                )
+                rows = cur.fetchall()
+        return pd.DataFrame(
+            rows,
+            columns=[
+                "Job Title",
+                "Company",
+                "Location",
+                "Link",
+                "Match Score",
+                "Matched Terms",
+                "Qualifications",
+                "Scraped At",
+            ],
+        )
+
     with sqlite3.connect(DB_PATH) as conn:
         df = pd.read_sql_query(
             """
@@ -122,6 +229,13 @@ def load_jobs_df() -> pd.DataFrame:
 
 def get_existing_links() -> set[str]:
     init_db()
+    if using_postgres():
+        with pg_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT link FROM jobs")
+                rows = cur.fetchall()
+        return {r[0] for r in rows if r and r[0]}
+
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute("SELECT link FROM jobs").fetchall()
     return {r[0] for r in rows if r and r[0]}

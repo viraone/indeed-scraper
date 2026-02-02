@@ -3,3 +3,5 @@ pandas
 beautifulsoup4
 undetected-chromedriver
 selenium
+
+psycopg2-binary
