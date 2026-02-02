@@ -5,12 +5,14 @@ import os
 import re
 import shutil
 import sqlite3
+import socket
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote_plus, urljoin
+from urllib.parse import urlparse
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -49,8 +51,27 @@ def pg_connect():
         raise RuntimeError(f"psycopg2 is required for Postgres mode. Import error: {e}")
 
     # Supabase requires SSL. If not specified in the DSN, enforce it.
-    if "sslmode=" not in db_url:
-        return psycopg2.connect(db_url, sslmode="require")
+    sslmode = "require" if "sslmode=" not in db_url else None
+
+    parsed = urlparse(db_url)
+    host = parsed.hostname
+    hostaddr = None
+
+    # Streamlit Cloud sometimes cannot use IPv6 outbound addresses. Force IPv4 when possible.
+    force_ipv4 = is_streamlit_cloud() or os.environ.get("FORCE_IPV4", "").strip().lower() in {"1", "true", "yes"}
+    if force_ipv4 and host:
+        try:
+            hostaddr = socket.gethostbyname(host)
+        except Exception:
+            hostaddr = None
+
+    if sslmode is not None:
+        if hostaddr:
+            return psycopg2.connect(db_url, sslmode=sslmode, hostaddr=hostaddr)
+        return psycopg2.connect(db_url, sslmode=sslmode)
+
+    if hostaddr:
+        return psycopg2.connect(db_url, hostaddr=hostaddr)
     return psycopg2.connect(db_url)
 
 
