@@ -55,24 +55,53 @@ def pg_connect():
 
     parsed = urlparse(db_url)
     host = parsed.hostname
+    port = parsed.port
+    user = parsed.username
+    password = parsed.password
+    dbname = (parsed.path or "/").lstrip("/")
+
     hostaddr = None
 
-    # Streamlit Cloud sometimes cannot use IPv6 outbound addresses. Force IPv4 when possible.
-    force_ipv4 = is_streamlit_cloud() or os.environ.get("FORCE_IPV4", "").strip().lower() in {"1", "true", "yes"}
-    if force_ipv4 and host:
+    def get_secret(name: str) -> str:
         try:
-            hostaddr = socket.gethostbyname(host)
+            v = st.secrets.get(name, "")
+            if v:
+                return str(v)
         except Exception:
-            hostaddr = None
+            pass
+        return os.environ.get(name, "").strip()
+
+    # Streamlit Cloud sometimes cannot use IPv6 outbound addresses. Force IPv4 when possible.
+    force_ipv4 = is_streamlit_cloud() or get_secret("FORCE_IPV4").lower() in {"1", "true", "yes"}
+    hostaddr_override = get_secret("DB_HOSTADDR")
+    if hostaddr_override:
+        hostaddr = hostaddr_override
+    elif force_ipv4 and host:
+        try:
+            # Prefer IPv4 A record
+            addrinfo = socket.getaddrinfo(host, None, socket.AF_INET)
+            if addrinfo and addrinfo[0] and addrinfo[0][4]:
+                hostaddr = addrinfo[0][4][0]
+        except Exception:
+            try:
+                hostaddr = socket.gethostbyname(host)
+            except Exception:
+                hostaddr = None
+
+    connect_kwargs = {
+        "dbname": dbname or "postgres",
+        "user": user or "postgres",
+        "password": password or "",
+        "host": host or "",
+        "port": int(port) if port else 5432,
+    }
 
     if sslmode is not None:
-        if hostaddr:
-            return psycopg2.connect(db_url, sslmode=sslmode, hostaddr=hostaddr)
-        return psycopg2.connect(db_url, sslmode=sslmode)
-
+        connect_kwargs["sslmode"] = sslmode
     if hostaddr:
-        return psycopg2.connect(db_url, hostaddr=hostaddr)
-    return psycopg2.connect(db_url)
+        connect_kwargs["hostaddr"] = hostaddr
+
+    return psycopg2.connect(**connect_kwargs)
 
 
 def is_streamlit_cloud() -> bool:
