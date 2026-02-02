@@ -25,6 +25,14 @@ DEFAULT_BOOLEAN_QUERY = 'Assembly Installer OR Assembler Installer OR 30204 OR 3
 BOEING_CODES = ["30204", "30304"]
 
 
+def is_streamlit_cloud() -> bool:
+    # Heuristic: Streamlit Cloud typically runs code from /mount/src/<repo>
+    try:
+        return "/mount/src/" in str(Path(__file__).resolve())
+    except Exception:
+        return False
+
+
 @dataclass
 class JobRow:
     job_title: str
@@ -428,6 +436,14 @@ with st.sidebar:
     radius = st.selectbox("Radius (miles)", options=[10, 25, 50], index=1)
     query_override = st.text_area("Query", value=DEFAULT_BOOLEAN_QUERY, height=90)
 
+    cloud = is_streamlit_cloud()
+    enable_scraping = st.toggle("Enable scraping", value=not cloud)
+    if cloud and enable_scraping:
+        st.warning(
+            "Scraping via Chrome/undetected-chromedriver is not reliably supported on Streamlit Cloud and may fail. "
+            "For cloud scraping, deploy on Render/Fly.io with Docker."
+        )
+
     st.divider()
     st.subheader("Browser")
     headless = st.toggle("Headless mode", value=True)
@@ -446,7 +462,12 @@ with st.sidebar:
 
 
 if scrape_clicked:
-    if not job_title.strip() or not location.strip():
+    if is_streamlit_cloud() and not enable_scraping:
+        st.error(
+            "Scraping is disabled on Streamlit Cloud for stability. Turn on 'Enable scraping' to try anyway, "
+            "or run locally for reliable scraping."
+        )
+    elif not job_title.strip() or not location.strip():
         st.sidebar.error("Please provide both a Job Title and Location.")
     else:
         with st.spinner("Scraping Indeed (first page) and saving results..."):
