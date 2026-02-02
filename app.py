@@ -47,6 +47,10 @@ def pg_connect():
         import psycopg2
     except Exception as e:
         raise RuntimeError(f"psycopg2 is required for Postgres mode. Import error: {e}")
+
+    # Supabase requires SSL. If not specified in the DSN, enforce it.
+    if "sslmode=" not in db_url:
+        return psycopg2.connect(db_url, sslmode="require")
     return psycopg2.connect(db_url)
 
 
