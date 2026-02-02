@@ -1,6 +1,7 @@
 import streamlit as st
 
 import datetime
+import os
 import re
 import sqlite3
 import subprocess
@@ -207,6 +208,13 @@ def create_driver(headless: bool, use_profile: bool, user_agent: str, proxy: str
         )
 
     options = uc.ChromeOptions()
+
+    chrome_binary = os.environ.get("CHROME_BINARY", "").strip()
+    if chrome_binary:
+        options.binary_location = chrome_binary
+    if getattr(options, "binary_location", None) is not None and not isinstance(options.binary_location, str):
+        options.binary_location = str(options.binary_location)
+
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
